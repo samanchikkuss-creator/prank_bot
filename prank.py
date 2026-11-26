@@ -58,6 +58,12 @@ PRANK_PROMPT = """Ты бот-пранкер. Отвечаешь на сообщ
 - Всегда оставайся в образе, даже если тебя просят говорить нормально."""
 
 # Groq совместим с форматом OpenAI, поэтому используем библиотеку openai
+# Прокси нужен на хостингах вроде бесплатного PythonAnywhere; на обычном компьютере переменных нет, и PROXY = None
+PROXY = (
+    os.environ.get("https_proxy") or os.environ.get("HTTPS_PROXY")
+    or os.environ.get("http_proxy") or os.environ.get("HTTP_PROXY")
+)
+
 llm = OpenAI(api_key=GROQ_API_KEY, base_url="https://api.groq.com/openai/v1")
 chosen_voice = {}  # chat_id -> "male" или "female"
 history = defaultdict(list)  # chat_id -> список сообщений
@@ -108,7 +114,7 @@ def ask_llm(chat_id: int, user_text: str) -> tuple:
 
 async def make_voice(text: str, out_ogg: str, tmpdir: str, voice: str) -> None:
     mp3 = os.path.join(tmpdir, "out.mp3")
-    await edge_tts.Communicate(text, voice, rate=VOICE_RATE).save(mp3)
+    await edge_tts.Communicate(text, voice, rate=VOICE_RATE, proxy=PROXY).save(mp3)
     await asyncio.to_thread(
         subprocess.run,
         ["ffmpeg", "-y", "-i", mp3, "-c:a", "libopus", "-b:a", "48k", out_ogg],
