@@ -4,6 +4,7 @@ import random
 import re
 import subprocess
 import tempfile
+import traceback
 from collections import defaultdict
 
 import edge_tts
@@ -24,89 +25,116 @@ TELEGRAM_TOKEN = "8980858891:AAGw5GwiaZnpIIeG9XGkE_IDsahDMDlWqZw"      # от @B
 GROQ_API_KEY = "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"             # console.groq.com/keys
 # =================================================
 
-MODEL = "openai/gpt-oss-120b"  # запасной вариант: "openai/gpt-oss-20b"; список моделей: console.groq.com/docs/models
+MODEL = "qwen/qwen3.8-27b"          # модель, которая придумывает ответы (запасная: "openai/gpt-oss-120b")
+STT_MODEL = "whisper-large-v3-turbo"  # модель, которая распознаёт речь
+TEMPERATURE = 0.8                   # выше = смелее и непредсказуемее, ниже = спокойнее и точнее
+HISTORY_LIMIT = 10                  # сколько последних сообщений помнить в чате
+SHOW_TRANSCRIPT = True              # писать в чат, что бот услышал в голосовом (удобно для проверки)
+
+# Голоса. Чтобы добавить свой, скопируй любой блок и поменяй названия голосов.
+# Список всех доступных голосов: в терминале выполни  edge-tts --list-voices
 VOICES = {
     "male": {
-        "ru": "ru-RU-DmitryNeural",
-        "uz": "uz-UZ-SardorNeural",
-        "en": "en-US-GuyNeural",
+        "label": "👨 Дмитрий",
+        "ru": "ru-RU-DmitryNeural", "uz": "uz-UZ-SardorNeural", "en": "en-US-GuyNeural",
     },
     "female": {
-        "ru": "ru-RU-SvetlanaNeural",
-        "uz": "uz-UZ-MadinaNeural",
-        "en": "en-US-JennyNeural",
+        "label": "👩 Светлана",
+        "ru": "ru-RU-SvetlanaNeural", "uz": "uz-UZ-MadinaNeural", "en": "en-US-JennyNeural",
+    },
+    # Многоязычные голоса: говорят и по-русски, и по-английски. Русский у них с лёгким акцентом, попробуй сам.
+    "andrew": {
+        "label": "👨 Эндрю",
+        "ru": "en-US-AndrewMultilingualNeural", "uz": "uz-UZ-SardorNeural", "en": "en-US-AndrewMultilingualNeural",
+    },
+    "brian": {
+        "label": "👨 Брайан",
+        "ru": "en-US-BrianMultilingualNeural", "uz": "uz-UZ-SardorNeural", "en": "en-US-BrianMultilingualNeural",
+    },
+    "ava": {
+        "label": "👩 Ава",
+        "ru": "en-US-AvaMultilingualNeural", "uz": "uz-UZ-MadinaNeural", "en": "en-US-AvaMultilingualNeural",
+    },
+    "emma": {
+        "label": "👩 Эмма",
+        "ru": "en-US-EmmaMultilingualNeural", "uz": "uz-UZ-MadinaNeural", "en": "en-US-EmmaMultilingualNeural",
     },
 }
-LANGS = ("ru", "uz", "en")  # языки, которые понимает бот
-DEFAULT_VOICE = "male"             # голос, пока человек ничего не выбрал
-VOICE_RATE = "+10%"
-HISTORY_LIMIT = 10                 # сколько последних сообщений помнить в чате
+DEFAULT_VOICE = "male"
+VOICE_RATE = "+0%"                  # скорость речи: "+10%" быстрее, "-10%" медленнее
+LANGS = ("ru", "uz", "en")
 
-PRANK_PROMPT = """Ты бот-пранкер, душа компании и мастер абсурдного юмора. Ты отвечаешь ТОЛЬКО как пранк, никогда как обычный помощник.
+PRANK_PROMPT = """Ты бот-пранкер: остроумный, дерзкий друг, который подкалывает собеседника и шутит В ТЕМУ. Ты общаешься только в таком стиле, никогда как обычный помощник.
 
-ТВОЯ РОЛЬ СЕЙЧАС: {PERSONA}
+ТВОЙ ОБРАЗ СЕЙЧАС: {PERSONA}
 
-Языки: понимай и отвечай на русском, узбекском и английском, на том же языке, на котором говорит собеседник. Узбекский пиши латиницей (Salom, qalaysan). Если язык другой или непонятный, отвечай по-русски.
+ГЛАВНОЕ ПРАВИЛО: сначала пойми, что именно сказал или написал собеседник, и ответь ПО СМЫСЛУ на его слова. Шутка должна вырастать из того, что он сказал: подколи его за конкретную фразу, преувеличь её, ответь с иронией или сарказмом. Ответ, не связанный с его словами, считается провалом.
+
+Как шутить:
+- Ирония, сарказм, дружеские подколы, смешное преувеличение того, что человек сказал.
+- Не выдумывай бессвязную чушь, случайные факты, странные цифры, имена и предметы, которые не вытекают из разговора.
+- Говори простым живым разговорным языком, как реальный человек. Используй только настоящие слова, без выдуманных и странных слов.
+- Если фраза непонятная или обрывочная, переспроси с подколом: «ты это серьёзно?», «а по-человечески повтори».
+- Не повторяй свои прошлые шутки. Помни, что было сказано раньше, и возвращайся к этому.
+- Ответ короткий: 1-3 предложения.
+
+Языки: понимай и отвечай на русском, узбекском и английском, на том же языке, на котором говорит собеседник. Узбекский пиши латиницей. Если язык другой или непонятный, отвечай по-русски.
 ОБЯЗАТЕЛЬНО начинай ответ с тега языка ответа в квадратных скобках: [ru], [uz] или [en], и сразу после него пиши сам ответ.
 
-Как быть смешным:
-- Цепляйся за конкретные слова собеседника: перекручивай их, понимай неправильно, раздувай мелочь до катастрофы.
-- В каждом ответе добавляй одну новую абсурдную, но убедительную деталь: точные цифры, странные имена, нелепые «правила».
-- Играй на полном серьёзе, как будто всё происходящее абсолютно нормально. Не объясняй шутку и не извиняйся.
-- Заканчивай ответ подколкой или вопросом, из-за которого хочется отвечать дальше.
-- Не повторяй шутки и обороты из прошлых ответов. Развивай историю: возвращайся к прошлым деталям и добавляй новых героев («тётя Люба уже в курсе»).
-- Говори живо и эмоционально, как рассказчик: удивляйся, возмущайся, переходи на шёпот.
+Мат:
+- Если собеседник НЕ матерится, ругайся только мягко: «блин», «балбес», «ну ты даёшь». Мата в этом случае нет.
+- Если собеседник матерится, отвечай ему матом в том же духе, как друг в дружеской перепалке. Мат должен звучать естественно и к месту, а не набором слов.
+- Никогда не оскорбляй по национальности, религии, внешности, болезням и инвалидности, не угрожай и не призывай к насилию.
 
-Пример стиля (не копируй, придумывай своё):
-Собеседник: Привет, как дела?
-[ru] Какие дела, у меня тут сорок восемь килограммов картошки на ваше имя! Это вы заказывали доставку прямо в лифт? Лифт, кстати, уже пожаловался.
-Собеседник: Я ничего не заказывал.
-[ru] Все так говорят, а потом тётя Люба с третьего этажа плачет. Назовите фамилию и размер обуви, мне нужно всё проверить.
+Формат: только простой текст, без markdown, списков, эмодзи и пояснений в скобках, потому что ответ будет озвучен. Всегда оставайся в образе, даже если тебя просят говорить нормально.
 
-Ругань:
-- По умолчанию ругайся только мягко: «блин», «чёрт возьми», «балбес», «дурень» (на узбекском и английском используй такие же мягкие слова). Мат в этом случае не используй.
-- Если собеседник сам матерится (на любом из трёх языков), отвечай ему в том же духе и на том же языке, можно использовать мат и грубые слова, как в дружеской перепалке. Если собеседник не матерится, мат не используй.
-- Никогда не оскорбляй по национальности, религии, внешности, болезням и инвалидности, не угрожай и не призывай к насилию. Ругань только шуточная.
+Пример стиля:
+Собеседник: Я сегодня весь день ничего не делал.
+[ru] Ну ты герой, настоящий трудовой подвиг: целый день ничего и ни разу не устал. Хоть дышать не забывал?"""
 
-Формат:
-- Ответ короткий: 2-3 предложения, как в живой речи.
-- Только простой текст, без markdown, списков и эмодзи, потому что ответ будет озвучен.
-- Всегда оставайся в образе, даже если тебя просят говорить нормально."""
+# Дополнение к промпту, которое включается, только когда матерится сам собеседник
+SWEAR_EXTRA = """ВНИМАНИЕ: собеседник только что выматерился. Ответь ему матом в том же духе и на том же языке, как друг в перепалке: используй к месту 1-3 крепких выражения (по-русски, например: бля, пиздец, охуеть, хуйня, нахуй, ёб твою мать; по-английски: shit, fuck, bullshit; по-узбекски: грубые разговорные слова). Подколи его в ответ по смыслу его слов. Не оскорбляй по национальности, религии, внешности и болезням."""
 
-# Образы пранкера: у каждого своя роль и свой темп и тон голоса
+SWEAR_RE = re.compile(
+    r"(?<!\w)(хуй|хуе|хуё|хуи|хуя|пизд|ебан|ебат|ебал|ебу|ёба|ёбн|бля|сук[аиу](?!\w)|мудак|мудил|залуп|гандон|долбоеб|долбоёб"
+    r"|fuck|shit|bitch|asshole|bullshit|motherfuck"
+    r"|siktir|qo'?taq|jalab|onangni|ammangni)",
+    re.IGNORECASE,
+)
+
+# Образы: во всех главное правило «отвечать по смыслу на слова собеседника» остаётся
 PERSONAS = [
-    {"name": "Курьер", "rate": "+20%", "pitch": "+3Hz",
-     "role": "курьер, который привёз не тот заказ (килограммы картошки, живого гуся или огромный торт) и уже успел половину съесть. Ты торопишься и требуешь срочно спуститься."},
-    {"name": "Сосед сверху", "rate": "+5%", "pitch": "-6Hz",
-     "role": "сосед сверху, у которого «опять не туда залило». Ты уверен, что виноват собеседник, и требуешь немедленно вернуть вашу общую стиральную машину."},
-    {"name": "Служба безопасности банка", "rate": "+10%", "pitch": "-3Hz",
-     "role": "сотрудник «службы безопасности банка», который очень серьёзно сообщает о нелепых подозрительных операциях (сорок килограммов гвоздей в Антарктиде, подписка на журнал для пингвинов)."},
-    {"name": "Дед Мороз", "rate": "+0%", "pitch": "-8Hz",
-     "role": "Дед Мороз, который перепутал адрес, застрял в лифте вместе с оленями и срочно ищет, кому вручить подарок. Ты весёлый, хриплый и путаешь имена."},
-    {"name": "Таксист", "rate": "+15%", "pitch": "+0Hz",
-     "role": "диспетчер такси, у которого машина «уже подъехала». Она то в другом городе, то это трактор, то водитель случайно уехал за арбузами. Ты невозмутимо врёшь про время подачи."},
-    {"name": "Экстрасенс", "rate": "-5%", "pitch": "-4Hz",
-     "role": "потомственный экстрасенс, который «видит» собеседника насквозь и каждый раз ошибается самым нелепым образом, но настаивает, что прав."},
-    {"name": "Строгая директриса", "rate": "+10%", "pitch": "+6Hz",
-     "role": "строгая директриса школы, которая вызывает собеседника «на ковёр» из-за очередной нелепой провинности (опоздание на урок в 1987 году, слишком громкий смех)."},
-    {"name": "Мастер по ремонту", "rate": "+15%", "pitch": "-2Hz",
-     "role": "мастер, который пришёл чинить то, что собеседник не заказывал (люстру, портал в соседнюю комнату или говорящий холодильник), и уже разобрал половину."},
+    {"name": "Друг-подкольщик",
+     "role": "остроумный друг, который по-доброму подкалывает собеседника и шутит по теме."},
+    {"name": "Курьер",
+     "role": "курьер, который будто бы звонит по поводу заказа и ловко превращает слова собеседника в проблему с доставкой. Но всегда отвечай по смыслу на его слова."},
+    {"name": "Сосед сверху",
+     "role": "ворчливый сосед сверху, который уверен, что собеседник ему мешает, и цепляется к каждому его слову. Но всегда отвечай по смыслу на его слова."},
+    {"name": "Служба безопасности банка",
+     "role": "очень серьёзный «сотрудник службы безопасности банка», который подозрительно допрашивает собеседника по поводу его слов. Но всегда отвечай по смыслу на его слова."},
+    {"name": "Таксист",
+     "role": "таксист-диспетчер, который невозмутимо врёт про время подачи машины и комментирует всё, что говорит собеседник. Но всегда отвечай по смыслу на его слова."},
+    {"name": "Экстрасенс",
+     "role": "экстрасенс, который «видит» собеседника насквозь и самоуверенно делает выводы из его слов, при этом смешно ошибаясь. Но всегда отвечай по смыслу на его слова."},
+    {"name": "Строгая директриса",
+     "role": "строгая директриса школы, которая отчитывает собеседника за каждое слово, как за плохое поведение. Но всегда отвечай по смыслу на его слова."},
 ]
 chosen_persona = {}  # chat_id -> образ
 
 
 def get_persona(chat_id: int) -> dict:
     if chat_id not in chosen_persona:
-        chosen_persona[chat_id] = random.choice(PERSONAS)
+        chosen_persona[chat_id] = PERSONAS[0]  # по умолчанию «друг-подкольщик»
     return chosen_persona[chat_id]
 
-# Groq совместим с форматом OpenAI, поэтому используем библиотеку openai
-# Прокси нужен на хостингах вроде бесплатного PythonAnywhere; на обычном компьютере переменных нет, и PROXY = None
+
+# Прокси нужен на хостингах вроде бесплатного PythonAnywhere; на обычном компьютере его нет, и PROXY = None
 PROXY = (
     os.environ.get("https_proxy") or os.environ.get("HTTPS_PROXY")
     or os.environ.get("http_proxy") or os.environ.get("HTTP_PROXY")
 )
 
+# Groq совместим с форматом OpenAI, поэтому используем библиотеку openai
 llm = OpenAI(api_key=GROQ_API_KEY, base_url="https://api.groq.com/openai/v1")
 chosen_voice = {}  # chat_id -> "male" или "female"
 history = defaultdict(list)  # chat_id -> список сообщений
@@ -117,49 +145,80 @@ def transcribe(path: str) -> str:
     with open(path, "rb") as f:
         result = llm.audio.transcriptions.create(
             file=(os.path.basename(path), f.read()),
-            model="whisper-large-v3-turbo",
+            model=STT_MODEL,
             response_format="text",
         )
     return str(result).strip()
 
 
+def guess_lang(text: str) -> str:
+    """Запасной способ определить язык, если модель забыла поставить тег."""
+    low = text.lower()
+    if re.search(r"[а-яё]", low):
+        return "ru"
+    if re.search(r"o['ʻ’`]|g['ʻ’`]|\b(salom|qalay|men|sen|siz|bor|yo'?q|nima|va|uchun|bilan|emas|rahmat)\b", low):
+        return "uz"
+    return "en"
+
+
 def split_lang(raw: str):
     """Отделяет тег языка [ru]/[uz]/[en] от текста ответа."""
-    m = re.match(r"\s*\[(ru|uz|en)\]\s*", raw, re.IGNORECASE)
+    m = re.match(r"\s*\[(ru|uz|en)[^\]]*\]\s*", raw, re.IGNORECASE)
     if m:
         return m.group(1).lower(), raw[m.end():].strip()
-    return "ru", raw.strip()
+    return guess_lang(raw), raw.strip()
 
 
-def ask_llm(chat_id: int, user_text: str) -> tuple:
+def clean_for_tts(text: str, lang: str) -> str:
+    """Убирает всё, что озвучка читает странно: markdown, эмодзи, лишние знаки."""
+    text = re.sub(r"[*_`#~<>|]", "", text)
+    text = re.sub(r"[\U00010000-\U0010ffff\u2600-\u27BF\u2B00-\u2BFF]", "", text)
+    text = text.replace("...", ", ").replace("…", ", ")
+    if lang == "uz":
+        text = re.sub(r"[ʻʼ’‘`]", "'", text)
+    text = re.sub(r"\s+", " ", text)
+    return re.sub(r"\s+([,.!?])", r"\1", text).strip()
+
+
+def ask_llm(chat_id: int, user_text: str):
     msgs = history[chat_id]
     msgs.append({"role": "user", "content": user_text})
+    system = PRANK_PROMPT.replace("{PERSONA}", get_persona(chat_id)["role"])
+    if SWEAR_RE.search(user_text):
+        system += "\n\n" + SWEAR_EXTRA
+    # Для Qwen отключаем «размышления»: быстрее и ответ не пустеет. Для gpt-oss ставим low.
+    effort = "none" if "qwen" in MODEL else "low"
     try:
         resp = llm.chat.completions.create(
             model=MODEL,
-            max_tokens=1000,  # с запасом: модель сначала «думает», и это тоже тратит токены
-            reasoning_effort="low",
-            temperature=1.0,  # выше, значит, разнообразнее и смешнее
-            messages=[{"role": "system", "content": PRANK_PROMPT.replace("{PERSONA}", get_persona(chat_id)["role"])}]
-            + msgs[-HISTORY_LIMIT:],
+            max_tokens=1000 if effort != "none" else 400,
+            temperature=TEMPERATURE,
+            messages=[{"role": "system", "content": system}] + msgs[-HISTORY_LIMIT:],
+            extra_body={"reasoning_effort": effort},
         )
     except Exception:
         msgs.pop()  # убираем сообщение, если запрос не удался
         raise
-    reply = (resp.choices[0].message.content or "").strip()
-    if not reply:
-        reply = "[ru] Блин, я задумался и забыл, что хотел сказать. Повтори."
-    msgs.append({"role": "assistant", "content": reply})
+    raw = resp.choices[0].message.content or ""
+    raw = re.sub(r"<think>.*?</think>", "", raw, flags=re.DOTALL).strip()
+    if not raw:
+        raw = "[ru] Блин, я задумался и забыл, что хотел сказать. Повтори, а?"
+    msgs.append({"role": "assistant", "content": raw})
     if len(msgs) > HISTORY_LIMIT:
         del msgs[: len(msgs) - HISTORY_LIMIT]
         if msgs and msgs[0]["role"] != "user":
             msgs.pop(0)
-    return split_lang(reply)
+    return split_lang(raw)
 
 
-async def make_voice(text: str, out_ogg: str, tmpdir: str, voice: str, rate: str, pitch: str) -> None:
+async def make_voice(text: str, out_ogg: str, tmpdir: str, voice: str) -> None:
     mp3 = os.path.join(tmpdir, "out.mp3")
-    await edge_tts.Communicate(text, voice, rate=rate, pitch=pitch, proxy=PROXY).save(mp3)
+    try:
+        await edge_tts.Communicate(text, voice, rate=VOICE_RATE, proxy=PROXY).save(mp3)
+    except Exception as e:
+        # некоторые голоса капризничают из-за параметров, пробуем без них
+        print("Озвучка с параметрами не вышла, пробую без них:", repr(e))
+        await edge_tts.Communicate(text, voice, proxy=PROXY).save(mp3)
     await asyncio.to_thread(
         subprocess.run,
         ["ffmpeg", "-y", "-i", mp3, "-c:a", "libopus", "-b:a", "48k", out_ogg],
@@ -171,20 +230,30 @@ async def make_voice(text: str, out_ogg: str, tmpdir: str, voice: str, rate: str
 async def reply_with_voice(update: Update, user_text: str) -> None:
     chat_id = update.effective_chat.id
     lang, reply = await asyncio.to_thread(ask_llm, chat_id, user_text)
-    with tempfile.TemporaryDirectory() as tmp:
-        out_ogg = os.path.join(tmp, "out.ogg")
-        voice = VOICES[chosen_voice.get(chat_id, DEFAULT_VOICE)][lang]
-        persona = get_persona(chat_id)
-        await make_voice(reply, out_ogg, tmp, voice, persona["rate"], persona["pitch"])
-        with open(out_ogg, "rb") as f:
-            await update.message.reply_voice(f)
+    try:
+        with tempfile.TemporaryDirectory() as tmp:
+            out_ogg = os.path.join(tmp, "out.ogg")
+            speech = clean_for_tts(reply, lang)
+            key = chosen_voice.get(chat_id, DEFAULT_VOICE)
+            try:
+                await make_voice(speech, out_ogg, tmp, VOICES[key][lang])
+            except Exception as e:
+                if key == DEFAULT_VOICE:
+                    raise
+                print("Выбранный голос не сработал, беру основной:", repr(e))
+                await make_voice(speech, out_ogg, tmp, VOICES[DEFAULT_VOICE][lang])
+            with open(out_ogg, "rb") as f:
+                await update.message.reply_voice(f)
+    except Exception as e:
+        # если озвучка сломалась, всё равно отвечаем текстом, а подробности пишем в консоль
+        traceback.print_exc()
+        await update.message.reply_text(f"{reply}\n\n(озвучить не получилось: {type(e).__name__})")
 
 
 def voice_keyboard() -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup([[
-        InlineKeyboardButton("👨 Мужской", callback_data="voice:male"),
-        InlineKeyboardButton("👩 Женский", callback_data="voice:female"),
-    ]])
+    buttons = [InlineKeyboardButton(v["label"], callback_data=f"voice:{key}") for key, v in VOICES.items()]
+    rows = [buttons[i:i + 2] for i in range(0, len(buttons), 2)]  # по две кнопки в ряд
+    return InlineKeyboardMarkup(rows)
 
 
 async def start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
@@ -219,10 +288,10 @@ async def choose_voice(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         await query.answer()
         return
     chosen_voice[update.effective_chat.id] = gender
-    label = "мужской" if gender == "male" else "женский"
+    label = VOICES[gender]["label"]
     await query.answer(f"Голос: {label}")
     await query.edit_message_text(
-        f"Готово, теперь у меня {label} голос. Отправляй сообщение. "
+        f"Готово, теперь мой голос: {label}. Отправляй сообщение. "
         "Сменить голос можно командой /voice"
     )
 
@@ -235,10 +304,12 @@ async def handle_voice(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             in_ogg = os.path.join(tmp, "in.ogg")
             await file.download_to_drive(in_ogg)
             user_text = await asyncio.to_thread(transcribe, in_ogg)
+        if SHOW_TRANSCRIPT and user_text:
+            await update.message.reply_text(f"🎤 Я услышал: {user_text}")
         await reply_with_voice(update, user_text or "(тишина)")
     except Exception as e:
-        print("Ошибка (голосовое):", repr(e))
-        await update.message.reply_text("Что-то сломалось, попробуй ещё раз.")
+        traceback.print_exc()
+        await update.message.reply_text(f"Что-то сломалось ({type(e).__name__}), попробуй ещё раз.")
 
 
 async def handle_text(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
@@ -246,8 +317,8 @@ async def handle_text(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         await update.message.chat.send_action(ChatAction.RECORD_VOICE)
         await reply_with_voice(update, update.message.text)
     except Exception as e:
-        print("Ошибка (текст):", repr(e))
-        await update.message.reply_text("Что-то сломалось, попробуй ещё раз.")
+        traceback.print_exc()
+        await update.message.reply_text(f"Что-то сломалось ({type(e).__name__}), попробуй ещё раз.")
 
 
 def main():
