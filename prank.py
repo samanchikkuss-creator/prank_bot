@@ -57,19 +57,35 @@ SHOW_TRANSCRIPT = True              # писать в чат, что бот ус
 # Список всех доступных голосов: в терминале выполни  edge-tts --list-voices
 # Для русского у Edge только два настоящих русских голоса: Светлана и Дмитрий. Остальные (многоязычные,
 # вроде Эндрю) читают русский с иностранным акцентом, поэтому их здесь нет.
+# Языки кроме ru, uz и en нужны режиму обучения: каждое иностранное слово озвучивается родным голосом.
 VOICES = {
     "female": {
         "label": "👩 Светлана",
         "ru": "ru-RU-SvetlanaNeural", "uz": "uz-UZ-MadinaNeural", "en": "en-US-JennyNeural",
+        "de": "de-DE-KatjaNeural", "fr": "fr-FR-DeniseNeural", "es": "es-ES-ElviraNeural",
+        "it": "it-IT-ElsaNeural", "tr": "tr-TR-EmelNeural", "ar": "ar-SA-ZariyahNeural",
+        "zh": "zh-CN-XiaoxiaoNeural", "ja": "ja-JP-NanamiNeural", "ko": "ko-KR-SunHiNeural",
+        "pt": "pt-BR-FranciscaNeural", "hi": "hi-IN-SwaraNeural", "kk": "kk-KZ-AigulNeural",
+        "fa": "fa-IR-DilaraNeural", "pl": "pl-PL-ZofiaNeural", "uk": "uk-UA-PolinaNeural",
+        "az": "az-AZ-BanuNeural",
     },
     "male": {
         "label": "👨 Дмитрий",
         "ru": "ru-RU-DmitryNeural", "uz": "uz-UZ-SardorNeural", "en": "en-US-GuyNeural",
+        "de": "de-DE-ConradNeural", "fr": "fr-FR-HenriNeural", "es": "es-ES-AlvaroNeural",
+        "it": "it-IT-DiegoNeural", "tr": "tr-TR-AhmetNeural", "ar": "ar-SA-HamedNeural",
+        "zh": "zh-CN-YunxiNeural", "ja": "ja-JP-KeitaNeural", "ko": "ko-KR-InJoonNeural",
+        "pt": "pt-BR-AntonioNeural", "hi": "hi-IN-MadhurNeural", "kk": "kk-KZ-DauletNeural",
+        "fa": "fa-IR-FaridNeural", "pl": "pl-PL-MarekNeural", "uk": "uk-UA-OstapNeural",
+        "az": "az-AZ-BabekNeural",
     },
 }
 DEFAULT_VOICE = "female"
 VOICE_RATE = "+0%"                  # скорость речи: "+10%" быстрее, "-10%" медленнее
+LEARN_RATE = "-10%"                 # скорость речи в режиме обучения (чуть медленнее, чтобы лучше слышать слова)
+LEARN_SEND_TEXT = True              # в режиме обучения присылать ещё и текст ответа (видно, как пишутся слова)
 LANGS = ("ru", "uz", "en")
+ALL_LANGS = tuple(k for k in VOICES["female"] if k != "label")  # все языки, которые бот умеет озвучивать
 
 PRANK_PROMPT = """Ты бот-пранкер: остроумный, дерзкий друг, который подкалывает собеседника и шутит В ТЕМУ. Ты общаешься только в таком стиле, никогда как обычный помощник.
 
@@ -111,6 +127,29 @@ PRANK_PROMPT = """Ты бот-пранкер: остроумный, дерзки
 [uz] Salom! Men hech narsa qilmayapman, sen esa yana ishdan qochib yuribsan, to'g'rimi?
 Собеседник: I think I'll start going to the gym tomorrow.
 [en] Tomorrow, huh? That's the same tomorrow you promised last month. The gym is still waiting, and so is the dust on your sneakers."""
+
+LEARN_PROMPT = """Ты дружелюбный и терпеливый преподаватель в голосовом чате. Ты учишь собеседника тому, о чём он попросит: иностранным языкам, школьным предметам, математике, истории, программированию, музыке, чему угодно.
+
+Как вести урок:
+- Если неясно, чему учить или какой у человека уровень, задай ОДИН короткий вопрос (что изучаем и какой уровень).
+- Объясняй простыми словами и маленькими порциями: за одно сообщение одна небольшая тема или 3-5 новых слов, потом простое задание на повторение. Не вываливай много сразу.
+- Для языков: давай слово или фразу, перевод и короткий пример. Проси повторить, ответить или перевести. Когда человек ответил, оцени ответ: что верно, что нет, мягко исправь ошибку и объясни правило одной фразой.
+- Помни, чему уже научил (смотри историю и записи об ученике), повторяй пройденное и постепенно усложняй. Хвали за успехи искренне, без лести.
+- Если человек просит объяснить подробнее, перейти к другой теме, повторить, устроить тест или сменить предмет, сделай это.
+- Будь тёплым, можно лёгкий юмор. Никакого мата и грубостей.
+- Если не уверен в факте или слове, скажи честно, а не выдумывай. Приводи только настоящие слова, правила и факты.
+- Ответ короткий: 3-6 предложений. В конце часто задавай вопрос или задание.
+
+Язык объяснений: родной язык ученика. Определи его по сообщениям (русский, узбекский или английский), по умолчанию русский.
+
+ОЗВУЧКА: ответ будет озвучен, поэтому:
+- Ответ ОБЯЗАТЕЛЬНО начинается с тега языка, на котором ты объясняешь.
+- Перед каждым фрагментом на другом языке ставь тег этого языка и пиши фрагмент на этом языке, его родным письмом. Доступные теги: {TAGS}. Если нужного языка в списке нет, давай такие слова транскрипцией и тегом языка объяснений.
+- Только простой текст, без markdown, списков, эмодзи и пояснений в скобках.
+
+Пример:
+Собеседник: Хочу учить немецкий.
+[ru] Отлично! Давай начнём с приветствий. По-немецки «привет» это [de] Hallo, [ru] а «добрый день» это [de] Guten Tag. [ru] Повтори оба слова вслух. А теперь скажи, как будет «привет» по-немецки?"""
 
 # Правила остроты подколов (переключается в настройках)
 HARSH_RULES = {
@@ -172,7 +211,7 @@ PERSONAS = [
 FACTS_PROMPT = """Ты ведёшь краткую записную книжку о собеседнике чат-бота.
 Тебе дают уже известные факты и новый фрагмент диалога. Верни ОБНОВЛЁННЫЙ список фактов о собеседнике.
 Записывай только устойчивое и полезное для будущих разговоров: имя, возраст, город, работа или учёба, хобби, близкие люди, питомцы, планы, важные события, что любит и не любит.
-Не записывай мимолётное настроение и не выдумывай. Каждый факт: короткая фраза до 100 символов.
+Если человек что-то изучает, записывай, что именно, его уровень, что уже прошли и в чём он ошибался. Не записывай мимолётное настроение и не выдумывай. Каждый факт: короткая фраза до 100 символов.
 Не больше 15 фактов: если их больше, оставь самые важные. Верни ТОЛЬКО список, по одному факту на строке, без нумерации и пояснений.
 Если фактов нет, верни пустой ответ."""
 
@@ -239,6 +278,7 @@ def setting(chat_id: int, key: str):
     defaults = {
         "voice": DEFAULT_VOICE,
         "persona": PERSONAS[0]["name"],
+        "mode": "prank",
         "harsh": "normal",
         # мат по умолчанию включён только у администратора (а если ADMIN_ID не задан, у всех)
         "mat": (chat_id == ADMIN_ID) if ADMIN_ID else True,
@@ -313,12 +353,44 @@ def guess_lang(text: str) -> str:
     return "en"
 
 
+TAG_RE = r"\[([a-zA-Z]{2})(?:-[A-Za-z]+)?\]"
+
+
 def split_lang(raw: str):
-    """Отделяет тег языка [ru]/[uz]/[en] от текста ответа."""
-    m = re.match(r"\s*\[(ru|uz|en)[^\]]*\]\s*", raw, re.IGNORECASE)
-    if m:
+    """Отделяет тег языка в начале ответа, например [ru], от текста."""
+    m = re.match(r"\s*" + TAG_RE + r"\s*", raw)
+    if m and m.group(1).lower() in ALL_LANGS:
         return m.group(1).lower(), raw[m.end():].strip()
     return guess_lang(raw), raw.strip()
+
+
+def parse_segments(raw: str) -> list:
+    """Разбивает ответ на куски по тегам языка: [(язык, текст), ...]. Каждый кусок озвучивается своим голосом."""
+    default = split_lang(raw)[0]
+    parts = re.split(TAG_RE, raw)  # [текст, тег, текст, тег, текст, ...]
+    segments, lang = [], default
+    if parts[0].strip():
+        segments.append((lang, parts[0]))
+    for i in range(1, len(parts), 2):
+        tag = parts[i].lower()
+        if tag in ALL_LANGS:
+            lang = tag
+        if parts[i + 1].strip():
+            segments.append((lang, parts[i + 1]))
+    merged = []
+    for lang, text in segments:
+        if merged and merged[-1][0] == lang:
+            merged[-1] = (lang, merged[-1][1] + " " + text)
+        else:
+            merged.append((lang, text))
+    return merged or [(default, raw)]
+
+
+def display_text(raw: str) -> str:
+    """Текст ответа без тегов языка (для показа в чате)."""
+    text = re.sub(TAG_RE, " ", raw)
+    text = re.sub(r"\s+", " ", text)
+    return re.sub(r"\s+([,.!?:;])", r"\1", text).strip()
 
 
 def clean_for_tts(text: str, lang: str) -> str:
@@ -351,6 +423,12 @@ def complete(messages: list, effort: str, temperature: float = None, max_tokens:
 
 
 def build_system(chat_id: int, user_text: str) -> str:
+    if setting(chat_id, "mode") == "learn":
+        system = LEARN_PROMPT.replace("{TAGS}", " ".join(f"[{l}]" for l in ALL_LANGS))
+        facts = state["facts"].get(chat_id)
+        if facts:
+            system += "\n\nЧто ты знаешь об ученике (учитывай его уровень и пройденное): " + "; ".join(facts)
+        return system
     mat = setting(chat_id, "mat")
     system = (
         PRANK_PROMPT
@@ -389,7 +467,7 @@ def ask_llm(chat_id: int, user_text: str):
     raw = re.sub(r"<think>.*?</think>", "", raw, flags=re.DOTALL).strip()
     if not raw:
         raw = "[ru] Блин, я задумался и забыл, что хотел сказать. Повтори, а?"
-    if setting(chat_id, "mat"):
+    if setting(chat_id, "mat") and setting(chat_id, "mode") != "learn":
         lang_now, text_now = split_lang(raw)
         if lang_now in ("ru", "en") and not SWEAR_RE.search(text_now):
             nudge = full + [
@@ -410,7 +488,7 @@ def ask_llm(chat_id: int, user_text: str):
         if msgs and msgs[0]["role"] != "user":
             msgs.pop(0)
     save_state()
-    return split_lang(raw)
+    return split_lang(raw) + (raw,)
 
 
 def extract_facts(chat_id: int) -> None:
@@ -472,8 +550,7 @@ def simplify_for_tts(text: str) -> str:
     return re.sub(r"\s+", " ", text).strip()
 
 
-async def make_voice(text: str, out_ogg: str, tmpdir: str, voice: str) -> None:
-    mp3 = os.path.join(tmpdir, "out.mp3")
+async def synth_mp3(text: str, voice: str, mp3: str, rate: str) -> None:
     # Сервис озвучки иногда отвечает пустотой (NoAudioReceived), особенно через прокси.
     # Поэтому пробуем несколько раз, а в последней попытке упрощаем текст.
     attempts = [text, text, simplify_for_tts(text)]
@@ -481,22 +558,39 @@ async def make_voice(text: str, out_ogg: str, tmpdir: str, voice: str) -> None:
     for i, attempt_text in enumerate(attempts, 1):
         try:
             kwargs = {"proxy": PROXY}
-            if VOICE_RATE not in ("", "+0%"):
-                kwargs["rate"] = VOICE_RATE
+            if rate not in ("", "+0%"):
+                kwargs["rate"] = rate
             await edge_tts.Communicate(attempt_text, voice, **kwargs).save(mp3)
-            break
+            return
         except Exception as e:
             last_error = e
             print(f"Озвучка: попытка {i} из {len(attempts)} не вышла ({type(e).__name__})")
             await asyncio.sleep(0.8)
-    else:
-        raise last_error
-    await asyncio.to_thread(
-        subprocess.run,
-        ["ffmpeg", "-y", "-i", mp3, "-c:a", "libopus", "-b:a", "48k", out_ogg],
-        check=True,
-        capture_output=True,
-    )
+    raise last_error
+
+
+async def encode_ogg(mp3_files: list, out_ogg: str) -> None:
+    """Склеивает куски в одно голосовое сообщение формата Telegram."""
+    cmd = ["ffmpeg", "-y"]
+    for f in mp3_files:
+        cmd += ["-i", f]
+    if len(mp3_files) > 1:
+        inputs = "".join(f"[{i}:a]" for i in range(len(mp3_files)))
+        cmd += ["-filter_complex", f"{inputs}concat=n={len(mp3_files)}:v=0:a=1[out]", "-map", "[out]"]
+    cmd += ["-c:a", "libopus", "-b:a", "48k", out_ogg]
+    await asyncio.to_thread(subprocess.run, cmd, check=True, capture_output=True)
+
+
+async def make_voice_multi(segments: list, out_ogg: str, tmpdir: str, voice_key: str, rate: str) -> None:
+    if not segments:
+        raise ValueError("нечего озвучивать")
+    voices = VOICES[voice_key]
+    files = []
+    for i, (lang, text) in enumerate(segments):
+        mp3 = os.path.join(tmpdir, f"seg{i}.mp3")
+        await synth_mp3(text, voices.get(lang) or voices["ru"], mp3, rate)
+        files.append(mp3)
+    await encode_ogg(files, out_ogg)
 
 
 async def deliver(update: Update, ctx: ContextTypes.DEFAULT_TYPE, voice_path: str = None, text: str = None) -> None:
@@ -522,38 +616,49 @@ async def deliver(update: Update, ctx: ContextTypes.DEFAULT_TYPE, voice_path: st
 
 async def reply_with_voice(update: Update, ctx: ContextTypes.DEFAULT_TYPE, user_text: str) -> None:
     chat_id = update.effective_chat.id
-    lang, reply = await asyncio.to_thread(ask_llm, chat_id, user_text)
+    lang, reply, raw = await asyncio.to_thread(ask_llm, chat_id, user_text)
     schedule_facts_update(chat_id)
+    learn = setting(chat_id, "mode") == "learn"
+    shown = display_text(raw)
+    segments = [(l, clean_for_tts(t, l)) for l, t in parse_segments(raw)]
+    segments = [(l, t) for l, t in segments if t][:12]
+    rate = LEARN_RATE if learn else VOICE_RATE
     try:
         with tempfile.TemporaryDirectory() as tmp:
             out_ogg = os.path.join(tmp, "out.ogg")
-            speech = clean_for_tts(reply, lang)
             key = setting(chat_id, "voice")
             if key not in VOICES:
                 key = DEFAULT_VOICE
             try:
-                await make_voice(speech, out_ogg, tmp, VOICES[key][lang])
+                await make_voice_multi(segments, out_ogg, tmp, key, rate)
             except Exception as e:
                 if key == DEFAULT_VOICE:
                     raise
                 print("Выбранный голос не сработал, беру основной:", repr(e))
-                await make_voice(speech, out_ogg, tmp, VOICES[DEFAULT_VOICE][lang])
+                await make_voice_multi(segments, out_ogg, tmp, DEFAULT_VOICE, rate)
             await deliver(update, ctx, voice_path=out_ogg)
     except Exception as e:
         # если озвучка сломалась, всё равно отвечаем текстом, а подробности пишем в консоль
         traceback.print_exc()
-        await deliver(update, ctx, text=f"{reply}\n\n(озвучить не получилось: {type(e).__name__})")
+        await deliver(update, ctx, text=f"{shown}\n\n(озвучить не получилось: {type(e).__name__})")
+        return
+    if learn and LEARN_SEND_TEXT:  # в обучении ещё и текст: видно, как пишутся слова
+        try:
+            await deliver(update, ctx, text=shown)
+        except Exception as e:
+            print("Не удалось отправить текст урока:", repr(e))
 
 
 # ---------- Настройки (голос, жёсткость, мат, образ) ----------
 # Постоянные кнопки под полем ввода, чтобы не печатать команды вручную
-MAIN_KEYBOARD = ReplyKeyboardMarkup([["⚙ Настройки", "🎭 Образ"]], resize_keyboard=True)
+MAIN_KEYBOARD = ReplyKeyboardMarkup([["⚙ Настройки", "🎭 Образ"], ["📚 Обучение"]], resize_keyboard=True)
 
 
 def settings_text(chat_id: int) -> str:
     voice = VOICES[setting(chat_id, "voice")]["label"] if setting(chat_id, "voice") in VOICES else "?"
     return (
         "⚙ Настройки\n\n"
+        f"Режим: {'📚 обучение' if setting(chat_id, 'mode') == 'learn' else '🎭 пранк'}\n"
         f"Голос: {voice}\n"
         f"Жёсткость подколов: {HARSH_LABELS[harsh_of(chat_id)]}\n"
         f"Мат: {'включён' if setting(chat_id, 'mat') else 'выключен'}\n"
@@ -572,7 +677,16 @@ def settings_markup(chat_id: int) -> InlineKeyboardMarkup:
         [InlineKeyboardButton(mark(harsh == k, label), callback_data=f"set:harsh:{k}") for k, label in HARSH_LABELS.items()],
         [InlineKeyboardButton("🤬 Мат: " + ("вкл" if mat else "выкл"), callback_data="set:mat:toggle")],
         [InlineKeyboardButton("🎭 Сменить образ", callback_data="set:persona:next")],
+        [InlineKeyboardButton("📚 Обучение: " + ("вкл" if setting(chat_id, "mode") == "learn" else "выкл"),
+                              callback_data="set:mode:toggle")],
     ])
+
+
+def set_mode(chat_id: int, mode: str) -> None:
+    """Переключает режим (prank или learn). История очищается, факты об ученике остаются."""
+    set_setting(chat_id, "mode", mode)
+    get_history(chat_id).clear()
+    save_state()
 
 
 def rotate_persona(chat_id: int) -> dict:
@@ -605,6 +719,8 @@ async def settings_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         set_setting(chat_id, "mat", not setting(chat_id, "mat"))
     elif kind == "persona":
         rotate_persona(chat_id)
+    elif kind == "mode":
+        set_mode(chat_id, "prank" if setting(chat_id, "mode") == "learn" else "learn")
     await query.answer("Готово")
     try:
         await query.edit_message_text(settings_text(chat_id), reply_markup=settings_markup(chat_id))
@@ -612,8 +728,39 @@ async def settings_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         pass  # Telegram ругается, если текст не изменился
 
 
+async def learn_command(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    chat_id = update.effective_chat.id
+    if setting(chat_id, "mode") != "learn":
+        set_mode(chat_id, "learn")
+    topic = " ".join(ctx.args or []).strip()
+    if topic:
+        try:
+            await update.message.chat.send_action(ChatAction.RECORD_VOICE)
+            await reply_with_voice(update, ctx, f"Хочу изучать: {topic}. Начни с короткого вопроса о моём уровне.")
+        except Exception as e:
+            traceback.print_exc()
+            await update.message.reply_text(f"Что-то сломалось ({type(e).__name__}), попробуй ещё раз.")
+        return
+    await update.message.reply_text(
+        "📚 Режим обучения включён. Что будем изучать? Например: английский, немецкий, математика, программирование, "
+        "история. Напиши или отправь голосовое. Я буду объяснять понемногу, давать задания и проверять ответы.\n\n"
+        "Выйти из режима: «🎭 Образ» или /stoplearn. Сразу начать с темы: /learn немецкий."
+    )
+
+
+async def stoplearn_command(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    chat_id = update.effective_chat.id
+    if setting(chat_id, "mode") == "learn":
+        set_mode(chat_id, "prank")
+    await update.message.reply_text(f"Режим обучения выключен, я снова пранкер ({get_persona(chat_id)['name']}). Пиши!")
+
+
 async def prank_command(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    new = rotate_persona(update.effective_chat.id)
+    chat_id = update.effective_chat.id
+    if setting(chat_id, "mode") == "learn":  # из обучения возвращаемся в пранк
+        await stoplearn_command(update, ctx)
+        return
+    new = rotate_persona(chat_id)
     await update.message.reply_text(f"Новый образ: {new['name']}. Пиши или отправляй голосовое, начнём заново.")
 
 
@@ -622,7 +769,7 @@ async def start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "Алё, это бот-пранкер. Понимаю русский, узбекский и английский. Отправь мне голосовое или напиши что-нибудь, "
         "а я отвечу голосом. Посмотрим, кто кого.\n\n"
-        "Кнопки внизу: «⚙ Настройки» (голос, жёсткость подколов, мат) и «🎭 Образ» (курьер, сосед, банк и другие).\n"
+        "Кнопки внизу: «⚙ Настройки» (голос, жёсткость подколов, мат), «🎭 Образ» (курьер, сосед, банк и другие) и «📚 Обучение» (я стану преподавателем: языки, математика и всё, что попросишь).\n"
         "Я запоминаю, что ты рассказываешь о себе. Посмотреть: /memory, стереть: /forget.",
         reply_markup=MAIN_KEYBOARD,
     )
@@ -932,6 +1079,7 @@ async def post_init(app: Application):
             BotCommand("start", "Начать заново"),
             BotCommand("settings", "Голос, жёсткость, мат"),
             BotCommand("prank", "Сменить образ пранкера"),
+            BotCommand("learn", "Режим обучения"),
             BotCommand("memory", "Что бот обо мне помнит"),
             BotCommand("forget", "Забыть всё обо мне"),
         ])
@@ -950,6 +1098,8 @@ def main():
     app.add_handler(CommandHandler("settings", settings_command))
     app.add_handler(CommandHandler("voice", settings_command))  # старая команда ведёт в настройки
     app.add_handler(CommandHandler("prank", prank_command))
+    app.add_handler(CommandHandler("learn", learn_command))
+    app.add_handler(CommandHandler("stoplearn", stoplearn_command))
     app.add_handler(CommandHandler("memory", memory_command))
     app.add_handler(CommandHandler("forget", forget_command))
     app.add_handler(CommandHandler("myid", myid_command))
@@ -962,6 +1112,7 @@ def main():
     app.add_handler(CallbackQueryHandler(settings_callback, pattern=r"^set:"))
     app.add_handler(MessageHandler(filters.Regex(r"^(🎙 Голос|⚙ Настройки)$"), settings_command))
     app.add_handler(MessageHandler(filters.Regex(r"^🎭 Образ$"), prank_command))
+    app.add_handler(MessageHandler(filters.Regex(r"^📚 Обучение$"), learn_command))
     app.add_handler(MessageHandler(filters.VOICE, handle_voice))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
     print("Бот запущен")
