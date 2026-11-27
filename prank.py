@@ -20,6 +20,7 @@ from telegram import (
     Update,
 )
 from telegram.constants import ChatAction
+from telegram.error import NetworkError
 from telegram.ext import (
     Application,
     ApplicationBuilder,
@@ -33,8 +34,8 @@ from telegram.ext import (
 )
 
 # ====== ВСТАВЬ СВОИ КЛЮЧИ (оба бесплатные) ======
-TELEGRAM_TOKEN = "8980858891:AAGw5GwiaZnpIIeG9XGkE_IDsahDMDlWqZw"      # от @BotFather
-GROQ_API_KEY = "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"             # console.groq.com/keys
+TELEGRAM_TOKEN = "ВСТАВЬ_ТОКЕН_TELEGRAM"      # от @BotFather
+GROQ_API_KEY = "ВСТАВЬ_КЛЮЧ_GROQ"             # console.groq.com/keys
 # =================================================
 
 # Твой Telegram ID: отправь боту /myid и впиши число сюда.
@@ -44,23 +45,26 @@ ADMIN_ID = 0
 
 MODEL = "qwen/qwen3.8-27b"          # модель, которая придумывает ответы (запасная: "openai/gpt-oss-120b")
 STT_MODEL = "whisper-large-v3-turbo"  # модель, которая распознаёт речь
-TEMPERATURE = 0.8                   # выше = смелее и непредсказуемее, ниже = спокойнее и точнее
+TEMPERATURE = 0.6                   # выше = смелее, но больше выдуманных слов; ниже = логичнее и точнее
 HISTORY_LIMIT = 30                  # сколько последних сообщений помнить в чате
 THINKING = "low"                    # размышление перед ответом: "none" выкл (быстро), "low", "medium", "high"
 FACTS_EVERY = 4                     # раз в сколько сообщений бот обновляет «записную книжку» о собеседнике
+ANSWER_IN_DM = False                # в группе: False = отвечать прямо в группу, True = отвечать в личку тому, кто отметил
+                                    # (в личку бот сможет писать, только если человек уже нажимал «Старт» у бота)
 SHOW_TRANSCRIPT = True              # писать в чат, что бот услышал в голосовом (удобно для проверки)
 
 # Голоса. Чтобы добавить свой, скопируй любой блок и поменяй названия голосов.
 # Список всех доступных голосов: в терминале выполни  edge-tts --list-voices
+# Для русского у Edge только два настоящих русских голоса: Светлана и Дмитрий. Остальные (многоязычные,
+# вроде Эндрю) читают русский с иностранным акцентом, поэтому их здесь нет.
 VOICES = {
     "female": {
         "label": "👩 Светлана",
         "ru": "ru-RU-SvetlanaNeural", "uz": "uz-UZ-MadinaNeural", "en": "en-US-JennyNeural",
     },
-    # Многоязычный голос: говорит и по-русски, и по-английски (по-русски с лёгким акцентом)
-    "andrew": {
-        "label": "👨 Эндрю",
-        "ru": "en-US-AndrewMultilingualNeural", "uz": "uz-UZ-SardorNeural", "en": "en-US-AndrewMultilingualNeural",
+    "male": {
+        "label": "👨 Дмитрий",
+        "ru": "ru-RU-DmitryNeural", "uz": "uz-UZ-SardorNeural", "en": "en-US-GuyNeural",
     },
 }
 DEFAULT_VOICE = "female"
@@ -77,7 +81,8 @@ PRANK_PROMPT = """Ты бот-пранкер: остроумный, дерзки
 - Ирония, сарказм, дружеские подколы, смешное преувеличение того, что человек сказал.
 - Острота подколов: {HARSH}
 - Не выдумывай бессвязную чушь, случайные факты, странные цифры, имена и предметы, которые не вытекают из разговора.
-- Говори простым живым разговорным языком, как реальный человек. Используй только настоящие слова, без выдуманных и странных слов.
+- Перед ответом проверь, что он логичен: прямо отвечает на фразу собеседника, а шутка имеет смысл.
+- Говори простым живым разговорным языком, как реальный человек. Каждое слово должно реально существовать в языке. НИКОГДА не придумывай свои слова, не склеивай слова, не лепи смешные словечки и «ругательства» собственного изготовления (вроде «скатина»): выдуманное слово звучит глупо и ломает шутку. Если не уверен в слове, выбери другое, обычное.
 - Если фраза непонятная или обрывочная, переспроси с подколом: «ты это серьёзно?», «а по-человечески повтори».
 - Не повторяй свои прошлые шутки. Помни, что было сказано раньше, и возвращайся к этому.
 - Говори как живой человек: короткие фразы, «ну», «слушай», «блин», эмоции. Иногда задавай встречный вопрос про самого собеседника.
@@ -109,21 +114,24 @@ PRANK_PROMPT = """Ты бот-пранкер: остроумный, дерзки
 
 # Правила остроты подколов (переключается в настройках)
 HARSH_RULES = {
-    "soft": "очень мягкие и добрые: больше тёплого юмора, почти без колкостей.",
     "normal": "дружеские, средней остроты.",
     "hard": "жёсткие и язвительные, как у очень близкого друга: сарказм на полную, без пощады к словам собеседника "
             "(но без оскорблений по национальности, религии, внешности, болезням и без угроз).",
 }
-HARSH_LABELS = {"soft": "Мягко", "normal": "Нормально", "hard": "Жёстко"}
+HARSH_LABELS = {"normal": "Нормально", "hard": "Жёстко"}
 
 # Правила мата (переключается в настройках кнопкой «Мат»)
-MAT_ON_RULES = """Мат:
-- Если собеседник НЕ матерится, ругайся только мягко: «блин», «балбес», «ну ты даёшь». Мата в этом случае нет.
-- Если собеседник матерится, отвечай ему матом в том же духе, как друг в дружеской перепалке. Мат должен звучать естественно и к месту, а не набором слов.
-- Никогда не оскорбляй по национальности, религии, внешности, болезням и инвалидности, не угрожай и не призывай к насилию.
-Пример ответа на мат:
-Собеседник: Блин, опять эта работа достала, пиздец.
-[ru] Бля, ну пиздец так пиздец, ты же сам туда каждый день ходишь, как на дежурство. Или увольняйся, или хватит ныть, я это слышу уже третий раз."""
+MAT_ON_RULES = """Мат (РЕЖИМ МАТА ВКЛЮЧЁН, это обязательное требование):
+- В КАЖДОМ ответе используй 1-3 крепких слова или выражения из списка ниже, даже если собеседник сам не матерится. Вставляй их к месту, для эмоции и подколки, как друг в перепалке, а не набором слов подряд.
+- Используй ТОЛЬКО настоящие слова из этого списка в их обычных формах. Не выдумывай свои ругательства, не искажай слова и не придумывай новых: придуманное слово звучит глупо.
+  Русский: бля, блядь, хуй, хуйня, хуёво, пиздец, ебать, ёб твою мать, ебаный, заебал, охуеть, нахуй, похуй, сука, мудак, придурок, дебил, долбоёб, идиот, тупица, козёл, лох.
+  English: fuck, fucking, shit, bullshit, damn, asshole, bastard, idiot, dumbass.
+  O'zbekcha: ahmoq, tentak, eshshak, jinni, la'nat.
+- Если собеседник сам матерится, отвечай ему ещё жёстче в том же духе и на том же языке.
+- Мат только в шутку и по смыслу слов собеседника. Никогда не оскорбляй по национальности, религии, внешности, болезням и инвалидности, не угрожай и не призывай к насилию.
+Пример ответа с матом:
+Собеседник: Я сегодня опять проспал.
+[ru] Ну ты даёшь, бля, третий раз за неделю! Будильник уже на тебя в суд подал, мудак ты ленивый."""
 
 MAT_OFF_RULES = """Мат:
 - Мат и грубая брань ЗАПРЕЩЕНЫ полностью, даже если собеседник сам матерится. Отвечай без мата, можешь шутливо заметить, что тут без выражений.
@@ -131,12 +139,14 @@ MAT_OFF_RULES = """Мат:
 - Никогда не оскорбляй по национальности, религии, внешности, болезням и инвалидности, не угрожай и не призывай к насилию."""
 
 # Дополнение к промпту, которое включается, только когда матерится сам собеседник (и мат включён)
-SWEAR_EXTRA = """ВНИМАНИЕ: собеседник только что выматерился. Ответь ему матом в том же духе и на том же языке, как друг в перепалке: используй к месту 1-3 крепких выражения (по-русски, например: бля, пиздец, охуеть, хуйня, нахуй, ёб твою мать; по-английски: shit, fuck, bullshit; по-узбекски: грубые разговорные слова). Подколи его в ответ по смыслу его слов. Не оскорбляй по национальности, религии, внешности и болезням."""
+SWEAR_EXTRA = """ВНИМАНИЕ: собеседник только что выматерился. Ответь ему ещё жёстче и злее в том же духе, мат обязателен. Используй только настоящие слова из списка. Подколи его по смыслу его слов."""
 
 SWEAR_RE = re.compile(
-    r"(?<!\w)(хуй|хуе|хуё|хуи|хуя|пизд|ебан|ебат|ебал|ебу|ёба|ёбн|бля|сук[аиу](?!\w)|мудак|мудил|залуп|гандон|долбоеб|долбоёб"
-    r"|fuck|shit|bitch|asshole|bullshit|motherfuck"
-    r"|siktir|qo'?taq|jalab|onangni|ammangni)",
+    r"хуй|хуе|хуё|хуи|хуя|пизд"
+    r"|(?<!\w)(?:за|на|по|об|от|вы|до|у|съ|рас|раз|с|вз|ис)?(?:ебан|ебат|ебал|ебу|ёба|ёбн|ебл|еб\s*твою|ёб\s*твою)"
+    r"|(?<!\w)(?:бля|сук[аиу](?!\w)|мудак|мудил|залуп|гандон|долбоеб|долбоёб)"
+    r"|(?<!\w)(?:fuck|shit|bitch|asshole|bullshit|motherfuck|dumbass|bastard)"
+    r"|(?<!\w)(?:siktir|qo'?taq|jalab|onangni|ammangni)",
     re.IGNORECASE,
 )
 
@@ -198,6 +208,7 @@ def load_state() -> dict:
         "facts": int_keys(data.get("facts", {})),       # chat_id -> факты о собеседнике
         "settings": int_keys(data.get("settings", {})),  # chat_id -> настройки
         "allowed": [int(x) for x in data.get("allowed", [])],  # кому выдан доступ
+        "allowed_chats": [int(x) for x in data.get("allowed_chats", [])],  # какие группы разрешены
     }
 
 
@@ -222,6 +233,8 @@ def get_history(chat_id: int) -> list:
 def setting(chat_id: int, key: str):
     saved = state["settings"].get(chat_id, {})
     if key in saved:
+        if key == "voice" and saved[key] == "andrew":
+            return "male"  # голос «Эндрю» убран: у него был акцент в русском
         return saved[key]
     defaults = {
         "voice": DEFAULT_VOICE,
@@ -236,6 +249,11 @@ def setting(chat_id: int, key: str):
 def set_setting(chat_id: int, key: str, value) -> None:
     state["settings"].setdefault(chat_id, {})[key] = value
     save_state()
+
+
+def harsh_of(chat_id: int) -> str:
+    h = setting(chat_id, "harsh")
+    return h if h in HARSH_RULES else "normal"  # режим «мягко» убран: старые настройки считаем «нормально»
 
 
 def get_persona(chat_id: int) -> dict:
@@ -308,6 +326,9 @@ def clean_for_tts(text: str, lang: str) -> str:
     text = re.sub(r"[*_`#~<>|]", "", text)
     text = re.sub(r"[\U00010000-\U0010ffff\u2600-\u27BF\u2B00-\u2BFF]", "", text)
     text = text.replace("...", ", ").replace("…", ", ")
+    text = re.sub(r"[«»“”„\"]", "", text)            # кавычки
+    text = re.sub(r"\s+[—–-]+\s+", ", ", text)        # тире между словами
+    text = re.sub(r"\s*[()\[\]{}]\s*", ", ", text)   # скобки
     if lang == "uz":
         text = re.sub(r"[ʻʼ’‘`]", "'", text)
     text = re.sub(r"\s+", " ", text)
@@ -323,6 +344,7 @@ def complete(messages: list, effort: str, temperature: float = None, max_tokens:
         model=MODEL,
         max_tokens=max_tokens or (1500 if effort != "none" else 400),  # размышление тоже тратит токены
         temperature=TEMPERATURE if temperature is None else temperature,
+        top_p=0.9,  # отсекает самые случайные слова
         messages=messages,
         extra_body=extra,
     )
@@ -333,7 +355,7 @@ def build_system(chat_id: int, user_text: str) -> str:
     system = (
         PRANK_PROMPT
         .replace("{PERSONA}", get_persona(chat_id)["role"])
-        .replace("{HARSH}", HARSH_RULES[setting(chat_id, "harsh")])
+        .replace("{HARSH}", HARSH_RULES[harsh_of(chat_id)])
         .replace("{MAT_RULES}", MAT_ON_RULES if mat else MAT_OFF_RULES)
     )
     facts = state["facts"].get(chat_id)
@@ -367,6 +389,21 @@ def ask_llm(chat_id: int, user_text: str):
     raw = re.sub(r"<think>.*?</think>", "", raw, flags=re.DOTALL).strip()
     if not raw:
         raw = "[ru] Блин, я задумался и забыл, что хотел сказать. Повтори, а?"
+    if setting(chat_id, "mat"):
+        lang_now, text_now = split_lang(raw)
+        if lang_now in ("ru", "en") and not SWEAR_RE.search(text_now):
+            nudge = full + [
+                {"role": "assistant", "content": raw},
+                {"role": "user", "content": "(Напоминание системы: режим мата включён, а в твоём ответе мата нет. "
+                                            "Напиши ответ заново, вставив 1-3 крепких слова из списка. Начни с тега языка.)"},
+            ]
+            try:
+                retry = complete(nudge, "none")
+                retry_raw = re.sub(r"<think>.*?</think>", "", retry.choices[0].message.content or "", flags=re.DOTALL).strip()
+                if retry_raw and SWEAR_RE.search(split_lang(retry_raw)[1]):
+                    raw = retry_raw
+            except Exception as e:
+                print("Повтор с матом не вышел:", repr(e))
     msgs.append({"role": "assistant", "content": raw})
     if len(msgs) > HISTORY_LIMIT:
         del msgs[: len(msgs) - HISTORY_LIMIT]
@@ -429,14 +466,31 @@ def schedule_facts_update(chat_id: int) -> None:
 
 
 # ---------- Озвучка и ответ ----------
+def simplify_for_tts(text: str) -> str:
+    """Самый «безопасный» вид текста для озвучки: только слова и простая пунктуация."""
+    text = re.sub(r"[^\w\s.,!?'-]", " ", text)
+    return re.sub(r"\s+", " ", text).strip()
+
+
 async def make_voice(text: str, out_ogg: str, tmpdir: str, voice: str) -> None:
     mp3 = os.path.join(tmpdir, "out.mp3")
-    try:
-        await edge_tts.Communicate(text, voice, rate=VOICE_RATE, proxy=PROXY).save(mp3)
-    except Exception as e:
-        # некоторые голоса капризничают из-за параметров, пробуем без них
-        print("Озвучка с параметрами не вышла, пробую без них:", repr(e))
-        await edge_tts.Communicate(text, voice, proxy=PROXY).save(mp3)
+    # Сервис озвучки иногда отвечает пустотой (NoAudioReceived), особенно через прокси.
+    # Поэтому пробуем несколько раз, а в последней попытке упрощаем текст.
+    attempts = [text, text, simplify_for_tts(text)]
+    last_error = None
+    for i, attempt_text in enumerate(attempts, 1):
+        try:
+            kwargs = {"proxy": PROXY}
+            if VOICE_RATE not in ("", "+0%"):
+                kwargs["rate"] = VOICE_RATE
+            await edge_tts.Communicate(attempt_text, voice, **kwargs).save(mp3)
+            break
+        except Exception as e:
+            last_error = e
+            print(f"Озвучка: попытка {i} из {len(attempts)} не вышла ({type(e).__name__})")
+            await asyncio.sleep(0.8)
+    else:
+        raise last_error
     await asyncio.to_thread(
         subprocess.run,
         ["ffmpeg", "-y", "-i", mp3, "-c:a", "libopus", "-b:a", "48k", out_ogg],
@@ -445,7 +499,28 @@ async def make_voice(text: str, out_ogg: str, tmpdir: str, voice: str) -> None:
     )
 
 
-async def reply_with_voice(update: Update, user_text: str) -> None:
+async def deliver(update: Update, ctx: ContextTypes.DEFAULT_TYPE, voice_path: str = None, text: str = None) -> None:
+    """Отправляет ответ: в тот же чат (в группе как ответ на сообщение) или, если включено, в личку."""
+    msg = update.message
+    if ANSWER_IN_DM and is_group(update):
+        try:
+            if voice_path:
+                with open(voice_path, "rb") as f:
+                    await ctx.bot.send_voice(update.effective_user.id, f)
+            else:
+                await ctx.bot.send_message(update.effective_user.id, text)
+            return
+        except Exception as e:
+            print("Не удалось написать в личку:", repr(e))
+            await msg.reply_text("Нажми «Старт» у меня в личке, и я смогу отвечать тебе туда. А пока отвечу здесь.")
+    if voice_path:
+        with open(voice_path, "rb") as f:
+            await msg.reply_voice(f)
+    else:
+        await msg.reply_text(text)
+
+
+async def reply_with_voice(update: Update, ctx: ContextTypes.DEFAULT_TYPE, user_text: str) -> None:
     chat_id = update.effective_chat.id
     lang, reply = await asyncio.to_thread(ask_llm, chat_id, user_text)
     schedule_facts_update(chat_id)
@@ -463,12 +538,11 @@ async def reply_with_voice(update: Update, user_text: str) -> None:
                     raise
                 print("Выбранный голос не сработал, беру основной:", repr(e))
                 await make_voice(speech, out_ogg, tmp, VOICES[DEFAULT_VOICE][lang])
-            with open(out_ogg, "rb") as f:
-                await update.message.reply_voice(f)
+            await deliver(update, ctx, voice_path=out_ogg)
     except Exception as e:
         # если озвучка сломалась, всё равно отвечаем текстом, а подробности пишем в консоль
         traceback.print_exc()
-        await update.message.reply_text(f"{reply}\n\n(озвучить не получилось: {type(e).__name__})")
+        await deliver(update, ctx, text=f"{reply}\n\n(озвучить не получилось: {type(e).__name__})")
 
 
 # ---------- Настройки (голос, жёсткость, мат, образ) ----------
@@ -481,14 +555,14 @@ def settings_text(chat_id: int) -> str:
     return (
         "⚙ Настройки\n\n"
         f"Голос: {voice}\n"
-        f"Жёсткость подколов: {HARSH_LABELS[setting(chat_id, 'harsh')]}\n"
+        f"Жёсткость подколов: {HARSH_LABELS[harsh_of(chat_id)]}\n"
         f"Мат: {'включён' if setting(chat_id, 'mat') else 'выключен'}\n"
         f"Образ: {get_persona(chat_id)['name']}"
     )
 
 
 def settings_markup(chat_id: int) -> InlineKeyboardMarkup:
-    voice, harsh, mat = setting(chat_id, "voice"), setting(chat_id, "harsh"), setting(chat_id, "mat")
+    voice, harsh, mat = setting(chat_id, "voice"), harsh_of(chat_id), setting(chat_id, "mat")
 
     def mark(active: bool, text: str) -> str:
         return ("✅ " if active else "") + text
@@ -574,8 +648,51 @@ async def forget_command(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("Всё стёр: и факты о тебе, и наш разговор. Знакомимся заново.")
 
 
+# ---------- Группы: отвечаем, только когда бота отметили ----------
+def is_group(update: Update) -> bool:
+    chat = update.effective_chat
+    return chat is not None and chat.type in ("group", "supergroup")
+
+
+def mentions_bot(msg, bot) -> bool:
+    uname = (bot.username or "").lower()
+    if not uname:
+        return False
+    for text in (msg.text, msg.caption):
+        if text and re.search(rf"@{re.escape(uname)}(?!\w)", text, re.IGNORECASE):
+            return True
+    return False
+
+
+def is_reply_to_bot(msg, bot) -> bool:
+    rt = msg.reply_to_message
+    return bool(rt and rt.from_user and rt.from_user.id == bot.id)
+
+
+def addressed_to_bot(msg, bot) -> bool:
+    """Сообщение адресовано боту: его отметили (@имя) или ответили на его сообщение."""
+    return mentions_bot(msg, bot) or is_reply_to_bot(msg, bot)
+
+
+def group_prompt(msg, bot) -> str:
+    """Готовит текст для модели: убирает @имя бота и добавляет сообщение, на которое ответили."""
+    text = (msg.text or msg.caption or "")
+    text = re.sub(rf"@{re.escape(bot.username or '')}(?!\w)", "", text, flags=re.IGNORECASE)
+    text = text.strip(" \n\t,:;-")
+    rt = msg.reply_to_message
+    quoted = ""
+    if rt and rt.from_user and rt.from_user.id != bot.id:
+        quoted = (rt.text or rt.caption or "").strip()
+    if quoted and text:
+        return f"{text}\n(речь о сообщении другого человека: «{quoted[:300]}»)"
+    if quoted:
+        return f"Подколи автора вот этого сообщения: «{quoted[:300]}»"
+    return text or "(тебя позвали, но ничего не сказали)"
+
+
 # ---------- Доступ только для своих ----------
 notified_blocked = set()
+notified_groups = set()
 
 
 def is_admin(update: Update) -> bool:
@@ -591,6 +708,24 @@ async def gate(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     if not user or is_allowed(user.id):
         return
+    chat = update.effective_chat
+    if is_group(update):
+        if chat.id in state["allowed_chats"]:
+            return
+        msg = update.message
+        # в неразрешённой группе молчим, пока бота не отметили; тогда один раз объясняем
+        if msg and addressed_to_bot(msg, ctx.bot) and chat.id not in notified_groups:
+            notified_groups.add(chat.id)
+            try:
+                await msg.reply_text("Меня в этой группе пока не разрешили. Администратор бота должен написать тут /allowgroup")
+                await ctx.bot.send_message(
+                    ADMIN_ID,
+                    f"👥 Бота пытаются использовать в группе «{chat.title}» (id {chat.id}).\n"
+                    "Чтобы разрешить, напиши в этой группе /allowgroup",
+                )
+            except Exception as e:
+                print("Не удалось сообщить о попытке доступа из группы:", repr(e))
+        raise ApplicationHandlerStop
     if user.id not in notified_blocked:  # сообщаем один раз, чтобы не спамить
         notified_blocked.add(user.id)
         name = " ".join(filter(None, [user.first_name, user.last_name])) or "без имени"
@@ -605,6 +740,33 @@ async def gate(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         except Exception as e:
             print("Не удалось сообщить о попытке доступа:", repr(e))
     raise ApplicationHandlerStop
+
+
+async def allowgroup_command(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    if not is_admin(update):
+        return
+    if not is_group(update):
+        await update.message.reply_text("Выполни эту команду внутри группы, которую хочешь разрешить.")
+        return
+    cid = update.effective_chat.id
+    if cid not in state["allowed_chats"]:
+        state["allowed_chats"].append(cid)
+        save_state()
+    notified_groups.discard(cid)
+    await update.message.reply_text("Эта группа разрешена. Отметь меня или ответь на моё сообщение.")
+
+
+async def denygroup_command(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    if not is_admin(update):
+        return
+    if not is_group(update):
+        await update.message.reply_text("Выполни эту команду внутри группы.")
+        return
+    cid = update.effective_chat.id
+    if cid in state["allowed_chats"]:
+        state["allowed_chats"].remove(cid)
+        save_state()
+    await update.message.reply_text("Группа закрыта.")
 
 
 async def allow_command(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
@@ -641,7 +803,7 @@ async def deny_command(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 async def allowed_command(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if not is_admin(update):
         return
-    if not state["allowed"]:
+    if not state["allowed"] and not state["allowed_chats"]:
         await update.message.reply_text("Список пуст: бот отвечает только тебе.")
         return
     lines = []
@@ -649,21 +811,25 @@ async def allowed_command(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         rec = stats.get(str(uid))
         who = f"{rec['name']} (@{rec['username']})" if rec and rec.get("username") else (rec["name"] if rec else "имя неизвестно")
         lines.append(f"• {uid}: {who}")
+    lines += [f"• группа {cid}" for cid in state["allowed_chats"]]
     await update.message.reply_text("Кому разрешено:\n" + "\n".join(lines))
 
 
 # ---------- Сообщения ----------
 async def handle_voice(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     try:
-        await update.message.chat.send_action(ChatAction.RECORD_VOICE)
-        file = await update.message.voice.get_file()
+        msg = update.message
+        if is_group(update) and not addressed_to_bot(msg, ctx.bot):
+            return  # в группе отвечаем только на отметку или на ответ на сообщение бота
+        await msg.chat.send_action(ChatAction.RECORD_VOICE)
+        file = await msg.voice.get_file()
         with tempfile.TemporaryDirectory() as tmp:
             in_ogg = os.path.join(tmp, "in.ogg")
             await file.download_to_drive(in_ogg)
             user_text = await asyncio.to_thread(transcribe, in_ogg)
-        if SHOW_TRANSCRIPT and user_text:
-            await update.message.reply_text(f"🎤 Я услышал: {user_text}")
-        await reply_with_voice(update, user_text or "(тишина)")
+        if SHOW_TRANSCRIPT and user_text and not is_group(update):
+            await msg.reply_text(f"🎤 Я услышал: {user_text}")
+        await reply_with_voice(update, ctx, user_text or "(тишина)")
     except Exception as e:
         traceback.print_exc()
         await update.message.reply_text(f"Что-то сломалось ({type(e).__name__}), попробуй ещё раз.")
@@ -671,8 +837,14 @@ async def handle_voice(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
 async def handle_text(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     try:
-        await update.message.chat.send_action(ChatAction.RECORD_VOICE)
-        await reply_with_voice(update, update.message.text)
+        msg = update.message
+        text = msg.text
+        if is_group(update):
+            if not addressed_to_bot(msg, ctx.bot):
+                return  # в группе молчим, пока бота не отметили
+            text = group_prompt(msg, ctx.bot)
+        await msg.chat.send_action(ChatAction.RECORD_VOICE)
+        await reply_with_voice(update, ctx, text)
     except Exception as e:
         traceback.print_exc()
         await update.message.reply_text(f"Что-то сломалось ({type(e).__name__}), попробуй ещё раз.")
@@ -684,6 +856,10 @@ async def track(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         user = update.effective_user
         if not user or not update.message:
             return
+        if is_group(update) and not (
+            addressed_to_bot(update.message, ctx.bot) or (update.message.text or "").startswith("/")
+        ):
+            return  # болтовню в группе не учитываем
         now = datetime.now().isoformat(timespec="seconds")
         uid = str(user.id)
         name = " ".join(filter(None, [user.first_name, user.last_name])) or "без имени"
@@ -741,6 +917,15 @@ async def stats_command(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("\n".join(lines))
 
 
+async def on_error(update: object, ctx: ContextTypes.DEFAULT_TYPE):
+    err = ctx.error
+    if isinstance(err, NetworkError):
+        # частые мелкие сбои связи (особенно на бесплатном PythonAnywhere), бот сам повторяет запрос
+        print("Сетевой сбой Telegram, бот повторит сам:", repr(err)[:150])
+        return
+    print("Ошибка:", repr(err))
+
+
 async def post_init(app: Application):
     try:
         await app.bot.set_my_commands([
@@ -758,6 +943,7 @@ def main():
     if not ADMIN_ID:
         print("ВНИМАНИЕ: ADMIN_ID не задан. Бот открыт для всех, а /stats, /allow и уведомления не работают.")
     app = ApplicationBuilder().token(TELEGRAM_TOKEN).post_init(post_init).build()
+    app.add_error_handler(on_error)
     app.add_handler(TypeHandler(Update, gate), group=-2)   # сначала проверяем, можно ли человеку пользоваться ботом
     app.add_handler(TypeHandler(Update, track), group=-1)  # учёт активности
     app.add_handler(CommandHandler("start", start))
@@ -771,6 +957,8 @@ def main():
     app.add_handler(CommandHandler("allow", allow_command))
     app.add_handler(CommandHandler("deny", deny_command))
     app.add_handler(CommandHandler("allowed", allowed_command))
+    app.add_handler(CommandHandler("allowgroup", allowgroup_command))
+    app.add_handler(CommandHandler("denygroup", denygroup_command))
     app.add_handler(CallbackQueryHandler(settings_callback, pattern=r"^set:"))
     app.add_handler(MessageHandler(filters.Regex(r"^(🎙 Голос|⚙ Настройки)$"), settings_command))
     app.add_handler(MessageHandler(filters.Regex(r"^🎭 Образ$"), prank_command))
