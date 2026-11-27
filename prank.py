@@ -34,8 +34,8 @@ from telegram.ext import (
 )
 
 # ====== ВСТАВЬ СВОИ КЛЮЧИ (оба бесплатные) ======
-TELEGRAM_TOKEN = "ВСТАВЬ_ТОКЕН_TELEGRAM"      # от @BotFather
-GROQ_API_KEY = "ВСТАВЬ_КЛЮЧ_GROQ"             # console.groq.com/keys
+TELEGRAM_TOKEN = "8980858891:AAGw5GwiaZnpIIeG9XGkE_IDsahDMDlWqZw"      # от @BotFather
+GROQ_API_KEY = "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"             # console.groq.com/keys
 # =================================================
 
 # Твой Telegram ID: отправь боту /myid и впиши число сюда.
